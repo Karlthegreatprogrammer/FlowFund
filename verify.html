@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FlowFund Verification</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #667085;
+        --green: #16a56d;
+        --red: #e5484d;
+        --border: #e5e9f2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+
+      main {
+        width: min(760px, 100%);
+        margin: 0 auto;
+        padding: 22px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.6rem;
+      }
+
+      p {
+        margin: 0 0 18px;
+        color: var(--muted);
+      }
+
+      .result {
+        display: grid;
+        gap: 10px;
+      }
+
+      .check {
+        padding: 12px;
+        border-radius: 8px;
+        background: #f9fbff;
+        border: 1px solid var(--border);
+      }
+
+      .pass {
+        color: var(--green);
+      }
+
+      .fail {
+        color: var(--red);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>FlowFund Verification</h1>
+      <p>This page runs the core financial sync checks directly in the browser.</p>
+      <div id="result" class="result"></div>
+    </main>
+    <script src="data.js"></script>
+    <script>
+      (function runVerification() {
+        var result = document.getElementById("result");
+        var core = window.FlowFundCore;
+        var checks = [];
+
+        function assert(name, condition, details) {
+          checks.push({
+            name: name,
+            passed: Boolean(condition),
+            details: details || "",
+          });
+        }
+
+        try {
+          var fixedToday = new Date(2026, 4, 25);
+          var state = core.createDefaultState();
+          state = core.createDashboard(state, "Clothing Store");
+          var dashboardId = state.selectedDashboardId;
+          var transactions = [
+            { dashboardId: dashboardId, type: "income", amount: 10000, date: "2026-05-25", category: "Sales" },
+            { dashboardId: dashboardId, type: "expense", amount: 2500, date: "2026-05-25", category: "Supplies" },
+            { dashboardId: dashboardId, type: "loss", amount: 500, date: "2026-05-24", category: "Damaged Goods" },
+            { dashboardId: dashboardId, type: "investment", amount: 3000, date: "2026-05-23", category: "Capital Added" },
+            { dashboardId: dashboardId, type: "debt_payment", amount: 1200, date: "2026-05-22", category: "Loan Payment" },
+          ];
+
+          transactions.forEach(function addRecord(transaction) {
+            var transactionResult = core.addTransaction(state, transaction);
+            assert("Add " + transaction.type, transactionResult.errors.length === 0, transactionResult.errors.join(" "));
+            state = transactionResult.state;
+          });
+
+          var summary = core.calculateSummary(state, dashboardId);
+          assert("Income syncs", summary.totalIncome === 10000);
+          assert("Expenses sync", summary.totalExpenses === 2500);
+          assert("Losses sync", summary.totalLosses === 500);
+          assert("Investment capital syncs", summary.investmentCapital === 3000);
+          assert("Debt payments sync", summary.totalDebt === 1200);
+          assert("Net earnings calculate", summary.netEarnings === 7000);
+          assert("Current balance calculates", summary.currentBalance === 8800);
+          assert("Health status calculates", summary.cashflowHealth.status === "Healthy");
+
+          assert(
+            "Allocations validate at 100%",
+            core.calculateAllocationTotal(core.getAllocationsForDashboard(state, dashboardId)) === 100,
+          );
+          assert("Default allocation template validates", core.validateDefaultAllocationTemplate(state).valid);
+
+          assert(
+            "Calendar date records sync",
+            core.getTransactionsForDate(state, dashboardId, "2026-05-25").length === 2,
+          );
+          assert(
+            "Month filter keeps all May records",
+            core.getTransactionsForPeriod(state, dashboardId, "month", fixedToday).length === 5,
+          );
+
+          var firstTransactionId = state.transactions[0].id;
+          var updateResult = core.updateTransaction(state, firstTransactionId, {
+            dashboardId: dashboardId,
+            type: "income",
+            amount: 12000,
+            date: "2026-05-25",
+            category: "Sales",
+            notes: "Updated",
+          });
+          state = updateResult.state;
+          summary = core.calculateSummary(state, dashboardId);
+          assert("Edited income updates summaries", summary.totalIncome === 12000 && summary.netEarnings === 9000);
+
+          state = core.deleteTransaction(state, firstTransactionId);
+          summary = core.calculateSummary(state, dashboardId);
+          assert("Deleted transaction updates summaries", summary.totalIncome === 0);
+          assert("Critical health appears when outflow exceeds income", summary.cashflowHealth.status === "Critical");
+
+          var insights = core.generateInsights(state, dashboardId, fixedToday);
+          assert("Insights use stored data", insights.length > 0);
+
+          var invalid = core.addTransaction(state, {
+            dashboardId: dashboardId,
+            type: "expense",
+            amount: 0,
+            date: "2026-05-25",
+          });
+          assert("Invalid amount is rejected", invalid.errors.indexOf("Amount must be greater than 0.") !== -1);
+        } catch (error) {
+          assert("Verification runner", false, error.message);
+        }
+
+        result.innerHTML = checks
+          .map(function renderCheck(check) {
+            return [
+              '<div class="check">',
+              '<strong class="',
+              check.passed ? "pass" : "fail",
+              '">',
+              check.passed ? "Passed" : "Failed",
+              "</strong> ",
+              check.name,
+              check.details ? "<br><small>" + check.details + "</small>" : "",
+              "</div>",
+            ].join("");
+          })
+          .join("");
+      })();
+    </script>
+  </body>
+</html>

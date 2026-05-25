@@ -1,0 +1,16 @@
+{
+  "name": "flowfund",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A simple financial command center for multiple businesses and income streams.",
+  "scripts": {
+    "lint": "node scripts/lint.js",
+    "test": "node tests/model.test.js",
+    "typecheck": "node scripts/typecheck.js",
+    "build": "node scripts/build.js",
+    "verify:browser": "echo Open verify.html in a browser"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1"
+  }
+}
